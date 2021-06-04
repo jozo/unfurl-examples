@@ -1,7 +1,7 @@
 import logging
 
-import boto3
-from botocore.exceptions import BotoCoreError
+from google.api_core.exceptions import GoogleAPIError
+from google.cloud.compute_v1 import ListMachineTypesRequest, MachineTypesClient
 from toscaparser.elements.scalarunit import ScalarUnit_Size
 
 log = logging.getLogger(__file__)
@@ -45,23 +45,22 @@ def attributes_from_host(ctx):
 
 
 def all_machine_types():
-    client = boto3.client("ec2")
-    kwargs = {}
-    try:
-        while True:
-            results = client.describe_instance_types(**kwargs)
-            if "NextToken" not in results:
-                break
-            kwargs["NextToken"] = results["NextToken"]
-            yield from (
-                {
-                    "name": it["InstanceType"],
-                    "mem": it["MemoryInfo"]["SizeInMiB"],
-                    "cpu": it["VCpuInfo"]["DefaultVCpus"],
-                }
-                for it in results["InstanceTypes"]
-            )
+    request = ListMachineTypesRequest()
+    request.project = "unfurl-test"         # Change to your GCP Compute project
+    request.zone = "us-central1-a"
 
-    except BotoCoreError as e:
-        log.error("AWS: %s", e)
-        raise ValueError("Can't find machine types. Can't communicate with AWS.")
+    try:
+        client = MachineTypesClient()
+        response = client.list(request)
+    except GoogleAPIError as e:
+        log.error("GCP: %s", e)
+        raise ValueError("Can't find machine types. Can't communicate with GCP.")
+
+    yield from (
+        {
+            "name": item.name,
+            "mem": item.memory_mb,
+            "cpu": item.guest_cpus,
+        }
+        for item in response.items
+    )
